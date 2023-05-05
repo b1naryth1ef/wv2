@@ -1,6 +1,7 @@
 package wv2
 
 import (
+	"fmt"
 	"log"
 	"unsafe"
 
@@ -25,9 +26,10 @@ type WindowOpts struct {
 type Window struct {
 	winc.Form
 
-	opts     WindowOpts
-	chromium *edge.Chromium
-	handle   uintptr
+	Chromium *edge.Chromium
+
+	opts   WindowOpts
+	handle uintptr
 }
 
 func NewWindow(opts WindowOpts) *Window {
@@ -40,7 +42,7 @@ func NewWindow(opts WindowOpts) *Window {
 	handle := winc.CreateWindow("wv2Window", nil, uint(exStyle), uint(dwStyle))
 
 	window := &Window{
-		chromium: chromium,
+		Chromium: chromium,
 		handle:   handle,
 		opts:     opts,
 	}
@@ -53,12 +55,26 @@ func NewWindow(opts WindowOpts) *Window {
 	w32.SetForegroundWindow(handle)
 	w32.SetFocus(handle)
 
-	window.SetSize(opts.InitialWidth, opts.InitialHeight)
+	width := opts.InitialWidth
+	height := opts.InitialHeight
+
+	if width == 0 {
+		width = 800
+	}
+	if height == 0 {
+		height = 600
+	}
+
+	window.SetSize(width, height)
+	if opts.Frameless {
+
+		win32.ExtendFrameIntoClientArea(handle, true)
+	}
 
 	chromium.AdditionalBrowserArgs = append(chromium.AdditionalBrowserArgs, "--enable-features=msWebView2EnableDraggableRegions")
-	chromium.MessageCallback = window.processMessage
-	chromium.WebResourceRequestedCallback = window.processRequest
-	chromium.NavigationCompletedCallback = window.navigationCompleted
+	// chromium.MessageCallback = window.processMessage
+	// chromium.WebResourceRequestedCallback = window.processRequest
+	// chromium.NavigationCompletedCallback = window.navigationCompleted
 
 	chromium.Embed(handle)
 	chromium.Resize()
@@ -86,7 +102,7 @@ func (w *Window) Run() {
 			}
 		}
 
-		w.chromium.Resize()
+		w.Chromium.Resize()
 	})
 
 	w.OnClose().Bind(func(arg *winc.Event) {
@@ -118,7 +134,7 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 	case w32.WM_NCLBUTTONDOWN:
 		w32.SetFocus(w.Handle())
 	case w32.WM_MOVE, w32.WM_MOVING:
-		w.chromium.NotifyParentWindowPositionChanged()
+		w.Chromium.NotifyParentWindowPositionChanged()
 	case 0x02E0: //w32.WM_DPICHANGED
 		newWindowSize := (*w32.RECT)(unsafe.Pointer(lparam))
 		w32.SetWindowPos(w.Handle(),
@@ -138,7 +154,10 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 			// As a result we have hidden the titlebar but still have the default window frame styling.
 			// See: https://docs.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea#remarks
 			// if w.framelessWithDecorations {
-			// 	win32.ExtendFrameIntoClientArea(w.Handle(), true)
+			if w.opts.Frameless {
+
+				win32.ExtendFrameIntoClientArea(w.Handle(), true)
+			}
 			// }
 		case w32.WM_NCCALCSIZE:
 			// Disable the standard frame by allowing the client area to take the full
@@ -150,8 +169,8 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 				rgrc := (*w32.RECT)(unsafe.Pointer(lparam))
 				if w.Form.IsFullScreen() {
 					// In Full-Screen mode we don't need to adjust anything
-					w.chromium.SetPadding(edge.Rect{})
-				} else if w.IsMaximised() {
+					w.Chromium.SetPadding(edge.Rect{})
+				} else if w.IsMaximized() {
 					// If the window is maximized we must adjust the client area to the work area of the monitor. Otherwise
 					// some content goes beyond the visible part of the monitor.
 					// Make sure to use the provided RECT to get the monitor, because during maximizig there might be
@@ -181,7 +200,7 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 							}
 						}
 					}
-					w.chromium.SetPadding(edge.Rect{})
+					w.Chromium.SetPadding(edge.Rect{})
 				} else {
 					// This is needed to workaround the resize flickering in frameless mode with WindowDecorations
 					// See: https://stackoverflow.com/a/6558508
@@ -190,7 +209,7 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 					// Increasing the bottom also worksaround the flickering but we would loose 1px of the WebView content
 					// therefore let's pad the content with 1px at the bottom.
 					rgrc.Bottom += 1
-					w.chromium.SetPadding(edge.Rect{Bottom: 1})
+					w.Chromium.SetPadding(edge.Rect{Bottom: 1})
 				}
 				return 0
 			}
@@ -199,70 +218,26 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 	return w.Form.WndProc(msg, wparam, lparam)
 }
 
-func (w *Window) IsMaximised() bool {
-	return win32.IsWindowMaximised(w.Handle())
+func (w *Window) IsMaximized() bool {
+	return win32.IsWindowMaximized(w.Handle())
 }
 
-func (w *Window) processMessage(message string) {
-	log.Printf("processMessage(%v)", message)
+var edgeMap = map[string]uintptr{
+	"top":          w32.HTTOP,
+	"top-right":    w32.HTTOPRIGHT,
+	"right":        w32.HTRIGHT,
+	"bottom-right": w32.HTBOTTOMRIGHT,
+	"bottom":       w32.HTBOTTOM,
+	"bottom-left":  w32.HTBOTTOMLEFT,
+	"left":         w32.HTLEFT,
+	"top-left":     w32.HTTOPLEFT,
 }
 
-func (w *Window) processRequest(req *edge.ICoreWebView2WebResourceRequest, args *edge.ICoreWebView2WebResourceRequestedEventArgs) {
-	return
-	// Setting the UserAgent on the CoreWebView2Settings clears the whole default UserAgent of the Edge browser, but
-	// we want to just append our ApplicationIdentifier. So we adjust the UserAgent for every request.
-	// if reqHeaders, err := req.GetHeaders(); err == nil {
-	// 	useragent, _ := reqHeaders.GetHeader(assetserver.HeaderUserAgent)
-	// 	useragent = strings.Join([]string{useragent, assetserver.WailsUserAgentValue}, " ")
-	// 	reqHeaders.SetHeader(assetserver.HeaderUserAgent, useragent)
-	// 	reqHeaders.Release()
-	// }
-
-	// if f.assets == nil {
-	// 	// We are using the devServer let the WebView2 handle the request with its default handler
-	// 	return
-	// }
-
-	// //Get the request
-	// uri, _ := req.GetUri()
-	// reqUri, err := url.ParseRequestURI(uri)
-	// if err != nil {
-	// 	f.logger.Error("Unable to parse equest uri %s: %s", uri, err)
-	// 	return
-	// }
-
-	// if reqUri.Scheme != f.startURL.Scheme {
-	// 	// Let the WebView2 handle the request with its default handler
-	// 	return
-	// } else if reqUri.Host != f.startURL.Host {
-	// 	// Let the WebView2 handle the request with its default handler
-	// 	return
-	// }
-
-	// rw := httptest.NewRecorder()
-	// f.assets.ProcessHTTPRequestLegacy(rw, coreWebview2RequestToHttpRequest(req))
-
-	// headers := []string{}
-	// for k, v := range rw.Header() {
-	// 	headers = append(headers, fmt.Sprintf("%s: %s", k, strings.Join(v, ",")))
-	// }
-
-	// env := f.chromium.Environment()
-	// response, err := env.CreateWebResourceResponse(rw.Body.Bytes(), rw.Code, http.StatusText(rw.Code), strings.Join(headers, "\n"))
-	// if err != nil {
-	// 	f.logger.Error("CreateWebResourceResponse Error: %s", err)
-	// 	return
-	// }
-	// defer response.Release()
-
-	// // Send response back
-	// err = args.PutResponse(response)
-	// if err != nil {
-	// 	f.logger.Error("PutResponse Error: %s", err)
-	// 	return
-	// }
-}
-
-func (w *Window) navigationCompleted(sender *edge.ICoreWebView2, args *edge.ICoreWebView2NavigationCompletedEventArgs) {
-	log.Printf("navigationCopleted(%v, %v)", sender, args)
+func (w *Window) StartResize(edge string) error {
+	var border uintptr = edgeMap[edge]
+	if !w32.ReleaseCapture() {
+		return fmt.Errorf("unable to release mouse capture")
+	}
+	w32.PostMessage(w.Handle(), w32.WM_NCLBUTTONDOWN, border, 0)
+	return nil
 }

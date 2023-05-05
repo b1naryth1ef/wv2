@@ -115,11 +115,11 @@ func IsWindowFullScreen(hwnd uintptr) bool {
 		wRect.Bottom == mi.RcMonitor.Bottom
 }
 
-func IsWindowMaximised(hwnd uintptr) bool {
+func IsWindowMaximized(hwnd uintptr) bool {
 	style := uint32(getWindowLong(hwnd, GWL_STYLE))
 	return style&WS_MAXIMIZE != 0
 }
-func IsWindowMinimised(hwnd uintptr) bool {
+func IsWindowMinimized(hwnd uintptr) bool {
 	style := uint32(getWindowLong(hwnd, GWL_STYLE))
 	return style&WS_MINIMIZE != 0
 }
@@ -132,10 +132,10 @@ func ShowWindow(hwnd uintptr) {
 	showWindow(hwnd, SW_SHOW)
 }
 
-func ShowWindowMaximised(hwnd uintptr) {
+func ShowWindowMaximized(hwnd uintptr) {
 	showWindow(hwnd, SW_MAXIMIZE)
 }
-func ShowWindowMinimised(hwnd uintptr) {
+func ShowWindowMinimized(hwnd uintptr) {
 	showWindow(hwnd, SW_MINIMIZE)
 }
 
@@ -146,7 +146,7 @@ func SetBackgroundColour(hwnd uintptr, r, g, b uint8) {
 }
 
 func IsWindowNormal(hwnd uintptr) bool {
-	return !IsWindowMaximised(hwnd) && !IsWindowMinimised(hwnd) && !IsWindowFullScreen(hwnd)
+	return !IsWindowMaximized(hwnd) && !IsWindowMinimized(hwnd) && !IsWindowFullScreen(hwnd)
 }
 
 func dwmExtendFrameIntoClientArea(hwnd uintptr, margins *MARGINS) error {

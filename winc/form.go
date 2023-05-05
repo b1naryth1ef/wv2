@@ -131,7 +131,7 @@ func (fm *Form) Maximise() {
 	w32.ShowWindow(fm.hwnd, w32.SW_MAXIMIZE)
 }
 
-func (fm *Form) Minimise() {
+func (fm *Form) Minimize() {
 	w32.ShowWindow(fm.hwnd, w32.SW_MINIMIZE)
 }
 
