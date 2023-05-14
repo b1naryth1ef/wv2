@@ -36,12 +36,6 @@ type Chromium struct {
 
 	padding Rect
 
-	// Settings
-	Debug                 bool
-	DataPath              string
-	BrowserPath           string
-	AdditionalBrowserArgs []string
-
 	// permissions
 	permissions      map[CoreWebView2PermissionKind]CoreWebView2PermissionState
 	globalPermission *CoreWebView2PermissionState
@@ -78,10 +72,9 @@ func NewChromium() *Chromium {
 	return e
 }
 
-func (e *Chromium) Embed(hwnd uintptr) bool {
+func (e *Chromium) Embed(hwnd uintptr, dataPath, browserPath string, additionalBrowserArgs []string) bool {
 	e.hwnd = hwnd
 
-	dataPath := e.DataPath
 	if dataPath == "" {
 		currentExePath := make([]uint16, windows.MAX_PATH)
 		_, err := windows.GetModuleFileName(windows.Handle(0), &currentExePath[0], windows.MAX_PATH)
@@ -93,15 +86,15 @@ func (e *Chromium) Embed(hwnd uintptr) bool {
 		dataPath = filepath.Join(os.Getenv("AppData"), currentExeName)
 	}
 
-	if e.BrowserPath != "" {
-		if _, err := os.Stat(e.BrowserPath); errors.Is(err, os.ErrNotExist) {
-			log.Printf("Browser path %s does not exist", e.BrowserPath)
+	if browserPath != "" {
+		if _, err := os.Stat(browserPath); errors.Is(err, os.ErrNotExist) {
+			log.Printf("Browser path %s does not exist", browserPath)
 			return false
 		}
 	}
 
-	browserArgs := strings.Join(e.AdditionalBrowserArgs, " ")
-	if err := createCoreWebView2EnvironmentWithOptions(e.BrowserPath, dataPath, e.envCompleted, browserArgs); err != nil {
+	browserArgs := strings.Join(additionalBrowserArgs, " ")
+	if err := createCoreWebView2EnvironmentWithOptions(browserPath, dataPath, e.envCompleted, browserArgs); err != nil {
 		log.Printf("Error calling Webview2Loader: %v", err)
 		return false
 	}

@@ -21,6 +21,10 @@ type WindowOpts struct {
 
 	MaxWidth  int
 	MaxHeight int
+
+	DataPath              string
+	BrowserPath           string
+	AdditionalBrowserArgs []string
 }
 
 type Window struct {
@@ -71,12 +75,12 @@ func NewWindow(opts WindowOpts) *Window {
 		win32.ExtendFrameIntoClientArea(handle, true)
 	}
 
-	chromium.AdditionalBrowserArgs = append(chromium.AdditionalBrowserArgs, "--enable-features=msWebView2EnableDraggableRegions")
-	// chromium.MessageCallback = window.processMessage
-	// chromium.WebResourceRequestedCallback = window.processRequest
-	// chromium.NavigationCompletedCallback = window.navigationCompleted
+	additionalBrowserArgs := []string{"--enable-features=msWebView2EnableDraggableRegions"}
+	if opts.AdditionalBrowserArgs != nil {
+		additionalBrowserArgs = append(additionalBrowserArgs, opts.AdditionalBrowserArgs...)
+	}
 
-	chromium.Embed(handle)
+	chromium.Embed(handle, opts.DataPath, opts.BrowserPath, additionalBrowserArgs)
 	chromium.Resize()
 
 	chromium.SetGlobalPermission(edge.CoreWebView2PermissionStateAllow)
@@ -92,10 +96,6 @@ func NewWindow(opts WindowOpts) *Window {
 func (w *Window) Run() {
 	w.OnSize().Bind(func(arg *winc.Event) {
 		if w.opts.Frameless {
-			// If the window is frameless and we are minimizing, then we need to suppress the Resize on the
-			// WebView2. If we don't do this, restoring does not work as expected and first restores with some wrong
-			// size during the restore animation and only fully renders when the animation is done. This highly
-			// depends on the content in the WebView, see https://github.com/wailsapp/wails/issues/1319
 			event, _ := arg.Data.(*winc.SizeEventData)
 			if event != nil && event.Type == w32.SIZE_MINIMIZED {
 				return
@@ -149,33 +149,15 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 	if w.opts.Frameless {
 		switch msg {
 		case w32.WM_ACTIVATE:
-			// If we want to have a frameless window but with the default frame decorations, extend the DWM client area.
-			// This Option is not affected by returning 0 in WM_NCCALCSIZE.
-			// As a result we have hidden the titlebar but still have the default window frame styling.
-			// See: https://docs.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea#remarks
-			// if w.framelessWithDecorations {
 			if w.opts.Frameless {
-
 				win32.ExtendFrameIntoClientArea(w.Handle(), true)
 			}
-			// }
 		case w32.WM_NCCALCSIZE:
-			// Disable the standard frame by allowing the client area to take the full
-			// window size.
-			// See: https://docs.microsoft.com/en-us/windows/win32/winmsg/wm-nccalcsize#remarks
-			// This hides the titlebar and also disables the resizing from user interaction because the standard frame is not
-			// shown. We still need the WS_THICKFRAME style to enable resizing from the frontend.
 			if wparam != 0 {
 				rgrc := (*w32.RECT)(unsafe.Pointer(lparam))
 				if w.Form.IsFullScreen() {
-					// In Full-Screen mode we don't need to adjust anything
 					w.Chromium.SetPadding(edge.Rect{})
 				} else if w.IsMaximized() {
-					// If the window is maximized we must adjust the client area to the work area of the monitor. Otherwise
-					// some content goes beyond the visible part of the monitor.
-					// Make sure to use the provided RECT to get the monitor, because during maximizig there might be
-					// a wrong monitor returned in multi screen mode when using MonitorFromWindow.
-					// See: https://github.com/MicrosoftEdge/WebView2Feedback/issues/2549
 					monitor := w32.MonitorFromRect(rgrc, w32.MONITOR_DEFAULTTONULL)
 
 					var monitorInfo w32.MONITORINFO
@@ -202,12 +184,6 @@ func (w *Window) WndProc(msg uint32, wparam, lparam uintptr) uintptr {
 					}
 					w.Chromium.SetPadding(edge.Rect{})
 				} else {
-					// This is needed to workaround the resize flickering in frameless mode with WindowDecorations
-					// See: https://stackoverflow.com/a/6558508
-					// The workaround originally suggests to decrese the bottom 1px, but that seems to bring up a thin
-					// white line on some Windows-Versions, due to DrawBackground using also this reduces ClientSize.
-					// Increasing the bottom also worksaround the flickering but we would loose 1px of the WebView content
-					// therefore let's pad the content with 1px at the bottom.
 					rgrc.Bottom += 1
 					w.Chromium.SetPadding(edge.Rect{Bottom: 1})
 				}
